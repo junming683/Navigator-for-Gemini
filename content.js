@@ -20,8 +20,6 @@
             USER_CONTENT: '.query-text-line',
             // 用户消息文本内容（备选）
             USER_CONTENT_ALT: '.query-content',
-            // 助手回复内容
-            ASSISTANT_CONTENT: 'message-content',
             // 滚动容器
             SCROLL_CONTAINER: 'infinite-scroller[data-test-id="chat-history-container"]',
             // 滚动容器（备选）
@@ -49,12 +47,6 @@
         THROTTLE_DELAY: 100,
         // Tooltip 悬停延迟
         TOOLTIP_DELAY: 500,
-        // 存储键前缀（与 ChatGPT 版不同，避免冲突）
-        STORAGE_KEY: 'gemininav_renames',
-        // AI 摘要输入文本最大字符数
-        AI_SUMMARY_MAX_LENGTH: 1000,
-        // AI 摘要截断时首尾保留字符数
-        AI_SUMMARY_HALF_LENGTH: 500,
     };
 
     // ============================================================
@@ -123,88 +115,6 @@
         if (text.length <= maxLength) return text;
         return text.substring(0, maxLength) + '...';
     }
-
-    // ============================================================
-    // 文本预处理器
-    // ============================================================
-
-    /**
-     * 文本预处理器 - 将对话内容格式化为 AI 摘要所需的输入
-     */
-    const TextPreprocessor = {
-        /**
-         * 默认文本缩减策略：直接截断
-         */
-        truncateText(text, maxLength = CONFIG.AI_SUMMARY_MAX_LENGTH, halfLength = CONFIG.AI_SUMMARY_HALF_LENGTH) {
-            if (!text || text.length <= maxLength) return text || '';
-            return text.substring(0, halfLength) + '……' + text.substring(text.length - halfLength);
-        },
-
-        /**
-         * 从对话轮次 DOM 元素中提取对话对（用户提问 + AI 回答）
-         * 注意：Gemini 中用户和助手在同一个 conversation-container 内
-         */
-        extractConversationPair(turnElement) {
-            // 在同一容器内查找用户内容
-            const userContent = turnElement.querySelector(CONFIG.SELECTORS.USER_CONTENT)
-                || turnElement.querySelector(CONFIG.SELECTORS.USER_CONTENT_ALT);
-            const userText = userContent?.textContent?.trim() || '';
-
-            // 在同一容器内查找助手回复内容
-            const assistantContent = turnElement.querySelector(CONFIG.SELECTORS.ASSISTANT_CONTENT);
-            const assistantText = assistantContent?.textContent?.trim() || '';
-
-            return { userText, assistantText };
-        },
-
-        /**
-         * 格式化对话文本，用于发送给 AI 摘要
-         */
-        formatForSummarization({ userText, assistantText, userTextReducer, assistantTextReducer }) {
-            const uReducer = userTextReducer || this.truncateText.bind(this);
-            const aReducer = assistantTextReducer || this.truncateText.bind(this);
-
-            const processedUser = uReducer(userText);
-            const processedAssistant = aReducer(assistantText);
-
-            return `User's Prompt:\n${processedUser}\nGemini's Answer:\n${processedAssistant}`;
-        },
-    };
-
-    // ============================================================
-    // AI 摘要服务
-    // ============================================================
-
-    /**
-     * AI 摘要服务 - 通过 background service worker 调用后端代理
-     */
-    const AISummarizerService = {
-        /**
-         * 检查服务是否可用
-         */
-        async isAvailable() {
-            return typeof chrome !== 'undefined' && !!chrome.runtime?.sendMessage;
-        },
-
-        /**
-         * 对文本进行摘要（通过后端代理调用 Qwen API）
-         */
-        async summarize(text) {
-            return new Promise((resolve, reject) => {
-                chrome.runtime.sendMessage({ type: 'AI_SUMMARIZE', text }, (response) => {
-                    if (chrome.runtime.lastError) {
-                        reject(new Error(chrome.runtime.lastError.message));
-                        return;
-                    }
-                    if (response?.error) {
-                        reject(new Error(response.error));
-                        return;
-                    }
-                    resolve(response?.summary || '');
-                });
-            });
-        },
-    };
 
     // ============================================================
     // 目录数据管理
@@ -297,58 +207,6 @@
             this.tooltipTimer = null;
             this.customNames = {};
             this.editingItemId = null;
-            this.summarizingItemId = null;
-            this.conversationId = this.getConversationId();
-        }
-
-        /**
-         * 获取当前对话 ID
-         * Gemini URL 格式: /app/{hex-id}
-         */
-        getConversationId() {
-            const match = window.location.pathname.match(/\/app\/([a-f0-9]+)/);
-            return match ? match[1] : 'default';
-        }
-
-        /**
-         * 加载自定义名称
-         */
-        async loadCustomNames() {
-            try {
-                const result = await chrome.storage.local.get(CONFIG.STORAGE_KEY);
-                const allRenames = result[CONFIG.STORAGE_KEY] || {};
-                this.customNames = allRenames[this.conversationId] || {};
-                this.render();
-            } catch (e) {
-                console.warn('Navigator for Gemini: 加载自定义名称失败', e);
-                this.customNames = {};
-            }
-        }
-
-        /**
-         * 保存自定义名称
-         */
-        async saveCustomName(itemId, newName) {
-            try {
-                const result = await chrome.storage.local.get(CONFIG.STORAGE_KEY);
-                const allRenames = result[CONFIG.STORAGE_KEY] || {};
-
-                if (!allRenames[this.conversationId]) {
-                    allRenames[this.conversationId] = {};
-                }
-
-                if (newName && newName.trim()) {
-                    allRenames[this.conversationId][itemId] = newName.trim();
-                    this.customNames[itemId] = newName.trim();
-                } else {
-                    delete allRenames[this.conversationId][itemId];
-                    delete this.customNames[itemId];
-                }
-
-                await chrome.storage.local.set({ [CONFIG.STORAGE_KEY]: allRenames });
-            } catch (e) {
-                console.warn('Navigator for Gemini: 保存自定义名称失败', e);
-            }
         }
 
         /**
@@ -377,7 +235,6 @@
             // 注入图标路径 CSS 变量
             try {
                 this.panel.style.setProperty('--gn-icon-rename', `url('${chrome.runtime.getURL('icons/rename.svg')}')`);
-                this.panel.style.setProperty('--gn-icon-ai', `url('${chrome.runtime.getURL('icons/ai_sumarize.svg')}')`);
                 this.panel.style.setProperty('--gn-icon-hide', `url('${chrome.runtime.getURL('icons/hide.svg')}')`);
             } catch (e) {
                 console.warn('Navigator for Gemini: 设置图标路径失败', e);
@@ -587,7 +444,6 @@
 
                 if (e.target.closest('.gn-rename-btn') ||
                     e.target.closest('.gn-item-rename-btn') ||
-                    e.target.closest('.gn-item-ai-btn') ||
                     e.target.closest('.gn-rename-input')) {
                     return;
                 }
@@ -603,18 +459,8 @@
                 }
             });
 
-            // AI 摘要按钮和重命名按钮点击
+            // 重命名按钮点击
             this.listContainer.addEventListener('click', (e) => {
-                if (e.target.closest('.gn-item-ai-btn')) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const item = e.target.closest('.gn-item');
-                    if (item && item.dataset.id) {
-                        this.aiSummarize(item.dataset.id);
-                    }
-                    return;
-                }
-
                 if (e.target.closest('.gn-item-rename-btn')) {
                     e.preventDefault();
                     e.stopPropagation();
@@ -691,7 +537,11 @@
             const input = this.listContainer.querySelector('.gn-rename-input');
             if (input && this.editingItemId) {
                 const newName = input.value.trim().substring(0, CONFIG.RENAME_MAX_LENGTH);
-                await this.saveCustomName(this.editingItemId, newName);
+                if (newName) {
+                    this.customNames[this.editingItemId] = newName;
+                } else {
+                    delete this.customNames[this.editingItemId];
+                }
                 this.editingItemId = null;
                 if (this.clickOutsideHandler) {
                     document.removeEventListener('mousedown', this.clickOutsideHandler);
@@ -711,42 +561,6 @@
                 this.clickOutsideHandler = null;
             }
             this.render();
-        }
-
-        /**
-         * AI 摘要并自动重命名
-         */
-        async aiSummarize(itemId) {
-            if (this.summarizingItemId) return;
-
-            const available = await AISummarizerService.isAvailable();
-            if (!available) {
-                console.warn('Navigator for Gemini: Summarizer API 不可用');
-                return;
-            }
-
-            const tocItem = this.tocManager.getItems().find((i) => i.id === itemId);
-            if (!tocItem || !tocItem.element) return;
-
-            this.summarizingItemId = itemId;
-            this.hideTooltip();
-            this.render();
-
-            try {
-                const { userText, assistantText } = TextPreprocessor.extractConversationPair(tocItem.element);
-                const inputText = TextPreprocessor.formatForSummarization({ userText, assistantText });
-                const summary = await AISummarizerService.summarize(inputText);
-
-                const newName = (summary || '').trim().substring(0, CONFIG.RENAME_MAX_LENGTH);
-                if (newName) {
-                    await this.saveCustomName(itemId, newName);
-                }
-            } catch (e) {
-                console.warn('Navigator for Gemini: AI 摘要失败', e);
-            } finally {
-                this.summarizingItemId = null;
-                this.render();
-            }
         }
 
         /**
@@ -774,20 +588,10 @@
                     const isEditing = item.id === this.editingItemId;
                     const displayName = this.getDisplayName(item);
                     const hasCustomName = this.customNames[item.id] ? true : false;
-                    const isSummarizing = item.id === this.summarizingItemId;
-
                     if (isEditing) {
                         return `
           <div class="gn-item gn-item-editing" data-id="${item.id}">
             <input type="text" class="gn-rename-input" value="${this.escapeAttr(displayName)}" maxlength="${CONFIG.RENAME_MAX_LENGTH}" />
-          </div>
-        `;
-                    } else if (isSummarizing) {
-                        return `
-          <div class="gn-item gn-item-summarizing" data-id="${item.id}">
-            <span class="gn-item-indicator"></span>
-            <span class="gn-item-summary">AI 摘要中...</span>
-            <span class="gn-item-ai-loading"></span>
           </div>
         `;
                     } else {
@@ -795,7 +599,6 @@
           <div class="gn-item ${isActive ? 'gn-item-active' : ''}" data-id="${item.id}" data-fulltext="${this.escapeAttr(item.fullText || '')}" data-original="${this.escapeAttr(item.summary)}">
             <span class="gn-item-indicator ${isJumpTarget ? 'gn-indicator-active' : ''}"></span>
             <span class="gn-item-summary ${hasCustomName ? 'gn-custom-name' : ''}">${this.escapeHtml(displayName)}</span>
-            <button class="gn-item-ai-btn" title="AI 摘要"></button>
             <button class="gn-item-rename-btn" title="重命名"></button>
           </div>
         `;
@@ -887,19 +690,12 @@
          * 刷新目录
          */
         refresh() {
-            // 检查对话 ID 是否变更
-            const currentConvId = this.getConversationId();
-            if (this.conversationId !== currentConvId) {
-                this.conversationId = currentConvId;
-                this.loadCustomNames();
-            }
-
             // 确保面板在正确的 DOM 位置
             this.insertPanelIntoLayout();
             this.insertExpandButton();
 
-            // 如果正在滚动、正在重命名或正在 AI 摘要，跳过刷新
-            if (this.isScrolling || this.editingItemId || this.summarizingItemId) return;
+            // 如果正在滚动或正在重命名，跳过刷新
+            if (this.isScrolling || this.editingItemId) return;
             this.tocManager.scan();
             this.render();
         }
@@ -1152,7 +948,6 @@
             // 延迟执行以确保 Gemini 的 Angular 应用完全加载
             setTimeout(async () => {
                 this.tocPanel.create();
-                await this.tocPanel.loadCustomNames();
                 this.tocPanel.refresh();
                 this.setupObserver();
                 this.setupScrollListener();
