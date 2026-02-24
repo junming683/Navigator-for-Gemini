@@ -1,6 +1,6 @@
 # Navigator for Gemini
 
-一款 Chrome 浏览器扩展，为 Google Gemini 对话页面添加侧边栏目录导航。用户可以通过目录快速跳转到任意对话位置，无需反复滚动页面查找历史消息，尤其适合进行长对话和递归式提问的用户。
+一款支持 Chrome / Firefox 的浏览器扩展，为 Google Gemini 对话页面添加侧边栏目录导航。用户可以通过目录快速跳转到任意对话位置，无需反复滚动页面查找历史消息，尤其适合进行长对话和递归式提问的用户。
 
 ![screen_shot-1](./assets/screen_shot-1.png)
 
@@ -23,11 +23,23 @@
 
 ## 安装
 
+### Chrome
+
 1. 下载或克隆本仓库到本地
 2. 打开 Chrome 浏览器，进入 `chrome://extensions/`
 3. 开启右上角的「开发者模式」
 4. 点击「加载已解压的扩展程序」，选择本项目文件夹
 5. 访问 [gemini.google.com](https://gemini.google.com/)，页面右侧将出现对话目录面板
+
+### Firefox（PC 本地导入）
+
+1. 下载或克隆本仓库到本地
+2. 打开 Firefox，访问 `about:debugging#/runtime/this-firefox`
+3. 点击「临时载入附加组件（Load Temporary Add-on）」
+4. 选择项目中的 `manifest.json` 文件
+5. 访问 [gemini.google.com](https://gemini.google.com/)，页面右侧将出现对话目录面板
+
+> 说明：临时载入模式在 Firefox 重启后会失效，重启后需要重新导入。
 
 ## 使用方法
 
@@ -40,7 +52,7 @@
 ## 项目结构
 
 ```
-├── manifest.json          # 扩展清单（Manifest V3）
+├── manifest.json          # 扩展清单（Manifest V3，含 Firefox gecko 配置）
 ├── content.js             # 内容脚本（目录面板核心逻辑）
 ├── styles.css             # 面板样式
 └── icons/                 # 图标资源

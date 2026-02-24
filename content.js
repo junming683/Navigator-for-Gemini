@@ -6,6 +6,8 @@
 (function () {
     'use strict';
 
+    const extensionRuntime = globalThis.browser?.runtime || globalThis.chrome?.runtime;
+
     // ============================================================
     // 配置常量
     // ============================================================
@@ -58,10 +60,14 @@
      */
     function isContextValid() {
         try {
-            return !!chrome.runtime?.id;
+            return !!extensionRuntime?.id;
         } catch {
             return false;
         }
+    }
+
+    function getExtensionURL(path) {
+        return extensionRuntime?.getURL ? extensionRuntime.getURL(path) : path;
     }
 
     /**
@@ -234,8 +240,8 @@
 
             // 注入图标路径 CSS 变量
             try {
-                this.panel.style.setProperty('--gn-icon-rename', `url('${chrome.runtime.getURL('icons/rename.svg')}')`);
-                this.panel.style.setProperty('--gn-icon-hide', `url('${chrome.runtime.getURL('icons/hide.svg')}')`);
+                this.panel.style.setProperty('--gn-icon-rename', `url('${getExtensionURL('icons/rename.svg')}')`);
+                this.panel.style.setProperty('--gn-icon-hide', `url('${getExtensionURL('icons/hide.svg')}')`);
             } catch (e) {
                 console.warn('Navigator for Gemini: 设置图标路径失败', e);
             }
